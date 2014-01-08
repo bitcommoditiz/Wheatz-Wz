@@ -6,6 +6,7 @@
 #define BITCOIN_NET_H
 
 #include <deque>
+#include <boost/regex.hpp>
 #include <boost/array.hpp>
 #include <boost/foreach.hpp>
 #include <openssl/rand.h>
@@ -34,6 +35,7 @@ inline unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 1*10
 void AddOneShot(std::string strDest);
 bool RecvLine(SOCKET hSocket, std::string& strLine);
 bool GetMyExternalIP(CNetAddr& ipRet);
+double GetQuoteFromYahoo(const CService& addrConnect, const char* pszGet, const char* pszKeyword);
 void AddressCurrentlyConnected(const CService& addr);
 CNode* FindNode(const CNetAddr& ip);
 CNode* FindNode(const CService& ip);
@@ -222,11 +224,11 @@ public:
     CCriticalSection cs_inventory;
     std::multimap<int64, CInv> mapAskFor;
 
-    CNode(SOCKET hSocketIn, CAddress addrIn, std::string addrNameIn = "", bool fInboundIn=false) : ssSend(SER_NETWORK, MIN_PROTO_VERSION)
+    CNode(SOCKET hSocketIn, CAddress addrIn, std::string addrNameIn = "", bool fInboundIn=false) : ssSend(SER_NETWORK, INIT_PROTO_VERSION)
     {
         nServices = 0;
         hSocket = hSocketIn;
-        nRecvVersion = MIN_PROTO_VERSION;
+        nRecvVersion = INIT_PROTO_VERSION;
         nLastSend = 0;
         nLastRecv = 0;
         nSendBytes = 0;

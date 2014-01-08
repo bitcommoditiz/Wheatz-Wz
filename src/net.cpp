@@ -399,6 +399,72 @@ bool GetMyExternalIP(CNetAddr& ipRet)
     return false;
 }
 
+
+double GetQuoteFromYahoo(const CService& addrConnect, const char* pszGet, const char* pszKeyword)
+{
+		
+    SOCKET hSocket;
+    if (!ConnectSocket(addrConnect, hSocket))
+    {
+        printf("GetQuoteFromYahoo() : connection to %s failed. Returning 0.0\n", addrConnect.ToString().c_str());
+        return 0.0;
+    }
+    send(hSocket, pszGet, strlen(pszGet), MSG_NOSIGNAL);
+
+    string strLine;
+    int nReceivedLines = 0;
+    while (RecvLine(hSocket, strLine))
+    {
+    	//printf("GetQuoteFromYahoo() raw received [%s]\n", strLine.c_str());
+        if (strLine.empty()) // HTTP response is separated from headers by blank line
+        {
+            loop
+            {
+                if (!RecvLine(hSocket, strLine))
+                {
+                    closesocket(hSocket);
+                    printf("GetQuoteFromYahoo() : No more line received. Returning 0.0\n");
+                    return 0.0;
+                }
+                else 
+                {
+                	  nReceivedLines++;
+                }
+                if (pszKeyword == NULL)
+                    break;
+                if (strLine.find(pszKeyword) != string::npos)
+                {
+                    //strLine = strLine.substr(strLine.find(pszKeyword) + strlen(pszKeyword));
+                    break;
+                }
+                if (nReceivedLines > 100) //we do not expect so many lines
+                {
+                    closesocket(hSocket);
+                    printf("GetQuoteFromYahoo() : unexpected number of lines. Returning 0.0\n");
+                    return 0.0;
+                }
+            }
+            closesocket(hSocket);
+            //"price" : "1241.199951",
+            regex expression("^(.*)\"price\" : \"(\\d{2,}\\.\\d{2,})\",\"symbol\"(.*)$");
+            cmatch what;
+               if (regex_match(strLine.c_str(), what, expression))
+                {
+                  std::string match (what[2].first, what[2].second);;
+                  return atof(match.c_str());
+                } 
+                else
+                {
+                	printf("GetQuoteFromYahoo() : result is not as expected. Returning 0.0\n[debug] %s \n",what[0].first);
+                	return 0.0;
+                }
+       }
+    }
+    closesocket(hSocket);
+    printf("GetQuoteFromYahoo() : Nothing received from socket. Returning 0.0\n");
+    return 0.0;
+}
+
 void ThreadGetMyExternalIP(void* parg)
 {
     // Make this thread recognisable as the external IP detection thread
@@ -1594,6 +1660,7 @@ void static StartSync(const vector<CNode*> &vNodes) {
         pnodeNewSync->fStartSync = true;
         pnodeSync = pnodeNewSync;
     }
+
 }
 
 void ThreadMessageHandler()

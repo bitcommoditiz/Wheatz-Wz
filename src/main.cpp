@@ -33,7 +33,7 @@ unsigned int nTransactionsUpdated = 0;
 
 map<uint256, CBlockIndex*> mapBlockIndex;
 uint256 hashGenesisBlock("0xf68ca708ead7bfdbb1344a0b7df75bc449b6aeeeed668bf11b4e5c8458d7906d");
-static CBigNum bnProofOfWorkLimit(~uint256(0) >> 20); // Wz: starting difficulty is 1 / 2^12
+static CBigNum bnProofOfWorkLimit(~uint256(0) >> 18); // Wz: starting difficulty is 1 / 2^10
 CBlockIndex* pindexGenesisBlock = NULL;
 int nBestHeight = -1;
 uint256 nBestChainWork = 0;
@@ -47,12 +47,19 @@ bool fImporting = false;
 bool fReindex = false;
 bool fBenchmark = false;
 bool fTxIndex = false;
+bool fSkipPOWTest = false;
+bool fCalledForTemplate = false;
 unsigned int nCoinCacheSize = 5000;
+int nPeerBlockCounts = 0;// at start sync the number of blocks in best peer
+double nUnderlyingBirthValue = 650; //the value of the underlying commodity in US Dollar the date the bitcommoditiz was born
+int nSlidingWindow = 50; // the number of underlying quote we maintain in the queue
+std::deque<double> qUnderlyingQuotes; //sliding queue with the last nSlidingWindow quote values of the underlying commodity
+
 
 /** Fees smaller than this (in satoshi) are considered zero fee (for transaction creation) */
-int64 CTransaction::nMinTxFee = 2000000;
+int64 CTransaction::nMinTxFee = 100000;
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying) */
-int64 CTransaction::nMinRelayTxFee = 2000000;
+int64 CTransaction::nMinRelayTxFee = 100000;
 
 CMedianFilter<int> cPeerBlockCounts(8, 0); // Amount of blocks that other nodes claim to have
 
@@ -1074,14 +1081,14 @@ int64 static GetBlockValue(int nHeight, int64 nFees)
 {
     int64 nSubsidy = 1 * COIN;
 
-    // Subsidy is cut in half every 840000 blocks, which will occur approximately every 4 years
-    nSubsidy >>= (nHeight / 840000); // Wz: 840k blocks in ~4 years
+    // Subsidy is cut in half every 420000 blocks, which will occur approximately every 4 years
+    nSubsidy >>= (nHeight / 420000); //  420k blocks in ~4 years
 
     return nSubsidy + nFees;
 }
 
-static const int64 nTargetTimespan = 3.5 * 24 * 60 * 60; // Wz: 3.5 days
-static const int64 nTargetSpacing = 2.5 * 60; // 1 Oz of Wz: 2.5 minutes
+static const int64 nTargetTimespan = 3.5 * 24 * 60 * 60; // 3.5 days
+static const int64 nTargetSpacing = 5 * 60; // 5 minutes
 static const int64 nInterval = nTargetTimespan / nTargetSpacing;
 
 //
@@ -1112,7 +1119,9 @@ unsigned int ComputeMinWork(unsigned int nBase, int64 nTime)
 unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock)
 {
     unsigned int nProofOfWorkLimit = bnProofOfWorkLimit.GetCompact();
-
+    double UnderlyingValue = 0.0;
+    double AvgValue = 0.0;
+    int RoundedAvgValue = 0;
     // Genesis block
     if (pindexLast == NULL)
         return nProofOfWorkLimit;
@@ -1136,7 +1145,38 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
                 return pindex->nBits;
             }
         }
+        if(!fCalledForTemplate){
+            CService addrConnect;
+            const char* pszGet;
+            const char* pszKeyword;
+            
+                CService addrIP("finance.yahoo.com", 80, true);
+                if (addrIP.IsValid())
+                    addrConnect = addrIP;
+            
 
+           //pszGet = "GET /d/quotes.csv?s=XAUUSD=X&f=l1 HTTP/1.1\r\n"
+           pszGet = "GET /webservice/v1/symbols/XAUUSD=X/quote?format=json HTTP/1.1\r\n"
+                     "Host: finance.yahoo.com\r\n"
+                     "User-Agent: Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1)\r\n"
+                     "Connection: close\r\n"
+                     "\r\n";
+
+            pszKeyword = "."; // Match the dot in the quote value
+            
+            UnderlyingValue=GetQuoteFromYahoo(addrConnect, pszGet, pszKeyword);
+            printf("New block ! GetQuoteFromYahoo() got USD %f\n", UnderlyingValue);
+            if (UnderlyingValue > 0.0)
+            	{
+            		qUnderlyingQuotes.push_front(UnderlyingValue);
+            		qUnderlyingQuotes.pop_back();
+              }
+              else
+              {
+              	qUnderlyingQuotes.push_front(qUnderlyingQuotes.at(0));//must be the neerest value to what we expected to get from GetQuoteFromYahoo()
+            		qUnderlyingQuotes.pop_back();
+              }
+         }
         return pindexLast->nBits;
     }
 
@@ -1152,6 +1192,26 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
         pindexFirst = pindexFirst->pprev;
     assert(pindexFirst);
 
+		// some information for reader
+    printf("Last %i quotations of underlying commodity in USD: ",nSlidingWindow);
+    for (long index=0; index<(long)qUnderlyingQuotes.size(); ++index) 
+    {
+      printf("%f ", qUnderlyingQuotes.at(index));       
+    }
+    printf("\n");
+
+    
+    //Compute average value of underlying commodity during the last nSlidingWindow blocks
+    for (long index=0; index<(long)qUnderlyingQuotes.size(); ++index) {
+    	AvgValue += qUnderlyingQuotes.at(index);
+    }
+    AvgValue /= nSlidingWindow;
+    printf("Average Value %f \n", AvgValue);
+    RoundedAvgValue = (int) AvgValue;
+    AvgValue = (double) RoundedAvgValue;
+    AvgValue /= nUnderlyingBirthValue;
+
+
     // Limit adjustment step
     int64 nActualTimespan = pindexLast->GetBlockTime() - pindexFirst->GetBlockTime();
     printf("  nActualTimespan = %"PRI64d"  before bounds\n", nActualTimespan);
@@ -1160,20 +1220,29 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
     if (nActualTimespan > nTargetTimespan*4)
         nActualTimespan = nTargetTimespan*4;
 
+    nActualTimespan /=AvgValue;
+    printf("  nActualTimespan (corrected) = %"PRI64d"  including an underlying price variation factor of %f\n", nActualTimespan,AvgValue);
+
     // Retarget
     CBigNum bnNew;
     bnNew.SetCompact(pindexLast->nBits);
     bnNew *= nActualTimespan;
     bnNew /= nTargetTimespan;
 
+
+
     if (bnNew > bnProofOfWorkLimit)
+    	{
         bnNew = bnProofOfWorkLimit;
+        printf("GetNextWorkRequired: Ignoring new difficulty, lower than min difficulty.\n");
+      }
 
     /// debug print
     printf("GetNextWorkRequired RETARGET\n");
-    printf("nTargetTimespan = %"PRI64d"    nActualTimespan = %"PRI64d"\n", nTargetTimespan, nActualTimespan);
+    printf("nTargetTimespan = %"PRI64d"    nActualTimespan (corrected) = %"PRI64d"\n", nTargetTimespan, nActualTimespan);
     printf("Before: %08x  %s\n", pindexLast->nBits, CBigNum().SetCompact(pindexLast->nBits).getuint256().ToString().c_str());
     printf("After:  %08x  %s\n", bnNew.GetCompact(), bnNew.getuint256().ToString().c_str());
+    printf("Including an underlying price variation factor of %f\n", AvgValue);
 
     return bnNew.GetCompact();
 }
@@ -1202,7 +1271,7 @@ int GetNumBlocksOfPeers()
 
 bool IsInitialBlockDownload()
 {
-    if (pindexBest == NULL || fImporting || fReindex || nBestHeight < Checkpoints::GetTotalBlocksEstimate())
+    if (pindexBest == NULL || fImporting || fReindex || nBestHeight < Checkpoints::GetTotalBlocksEstimate()+nSlidingWindow)
         return true;
     static int64 nLastUpdate;
     static CBlockIndex* pindexLastBest;
@@ -2170,8 +2239,19 @@ bool CBlock::AcceptBlock(CValidationState &state, CDiskBlockPos *dbp)
         nHeight = pindexPrev->nHeight+1;
 
         // Check proof of work
-        if (nBits != GetNextWorkRequired(pindexPrev, this))
-            return state.DoS(100, error("AcceptBlock() : incorrect proof of work"));
+        if(nHeight <= nPeerBlockCounts + nSlidingWindow){
+        	fSkipPOWTest = true;
+        } else {
+        	fSkipPOWTest = false;
+        }
+        if(!fSkipPOWTest){
+          if (nBits != GetNextWorkRequired(pindexPrev, this))
+              return state.DoS(100, error("AcceptBlock() : incorrect proof of work"));
+          } else {
+          	if (nHeight > nPeerBlockCounts)
+          	unsigned int nFakenBits = GetNextWorkRequired(pindexPrev, this);
+          	printf("Got block %i of %i from peer.\n",nHeight,nPeerBlockCounts + nSlidingWindow);
+          }
 
         // Check timestamp against prev
         if (GetBlockTime() <= pindexPrev->GetMedianTimePast())
@@ -2303,7 +2383,7 @@ bool ProcessBlock(CValidationState &state, CNode* pfrom, CBlock* pblock, CDiskBl
         }
         return true;
     }
-
+    
     // Store to disk
     if (!pblock->AcceptBlock(state, dbp))
         return error("ProcessBlock() : AcceptBlock FAILED");
@@ -3209,10 +3289,9 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
         CAddress addrFrom;
         uint64 nNonce = 1;
         vRecv >> pfrom->nVersion >> pfrom->nServices >> nTime >> addrMe;
-        if (pfrom->nVersion < MIN_PROTO_VERSION)
+        if (pfrom->nVersion < MIN_PEER_PROTO_VERSION)
         {
-            // Since February 20, 2012, the protocol is initiated at version 209,
-            // and earlier versions are no longer supported
+            //// disconnect from peers older than this proto version
             printf("partner %s using obsolete version %i; disconnecting\n", pfrom->addr.ToString().c_str(), pfrom->nVersion);
             pfrom->fDisconnect = true;
             return false;
@@ -3294,6 +3373,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
         printf("receive version message: version %d, blocks=%d, us=%s, them=%s, peer=%s\n", pfrom->nVersion, pfrom->nStartingHeight, addrMe.ToString().c_str(), addrFrom.ToString().c_str(), pfrom->addr.ToString().c_str());
 
         cPeerBlockCounts.input(pfrom->nStartingHeight);
+        nPeerBlockCounts = pfrom->nStartingHeight;
+
     }
 
 
@@ -3901,12 +3982,12 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
                 pto->PushMessage("ping");
         }
 
-        // Start block sync
+        // Start block sync ICI
         if (pto->fStartSync && !fImporting && !fReindex) {
             pto->fStartSync = false;
             pto->PushGetBlocks(pindexBest, uint256(0));
         }
-
+       
         // Resend wallet transactions that haven't gotten in a block yet
         // Except during reindex, importing and IBD, when old wallet
         // transactions become unconfirmed and spams other nodes.
@@ -4303,7 +4384,7 @@ CBlockTemplate* CreateNewBlock(CReserveKey& reservekey)
             // Prioritize by fee once past the priority size or we run out of high-priority
             // transactions:
             if (!fSortedByFee &&
-                ((nBlockSize + nTxSize >= nBlockPrioritySize) || (dPriority < COIN * 576 / 250)))
+                ((nBlockSize + nTxSize >= nBlockPrioritySize) || (dPriority < COIN * 288 / 250)))
             {
                 fSortedByFee = true;
                 comparer = TxPriorityCompare(fSortedByFee);
@@ -4366,7 +4447,8 @@ CBlockTemplate* CreateNewBlock(CReserveKey& reservekey)
 
         pblock->vtx[0].vout[0].nValue = GetBlockValue(pindexPrev->nHeight+1, nFees);
         pblocktemplate->vTxFees[0] = -nFees;
-
+	      fCalledForTemplate = true;
+        
         // Fill in header
         pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
         pblock->UpdateTime(pindexPrev);
@@ -4375,6 +4457,8 @@ CBlockTemplate* CreateNewBlock(CReserveKey& reservekey)
         pblock->vtx[0].vin[0].scriptSig = CScript() << OP_0 << OP_0;
         pblocktemplate->vTxSigOps[0] = pblock->vtx[0].GetLegacySigOpCount();
 
+        //reset flag
+        fCalledForTemplate = false;
         CBlockIndex indexDummy(*pblock);
         indexDummy.pprev = pindexPrev;
         indexDummy.nHeight = pindexPrev->nHeight + 1;

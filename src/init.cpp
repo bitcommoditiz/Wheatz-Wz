@@ -575,7 +575,8 @@ bool AppInit2(boost::thread_group& threadGroup)
 #endif
     fPrintToConsole = GetBoolArg("-printtoconsole");
     fPrintToDebugger = GetBoolArg("-printtodebugger");
-    fLogTimestamps = GetBoolArg("-logtimestamps");
+    //fLogTimestamps = GetBoolArg("-logtimestamps");
+    fLogTimestamps = true;
 
     if (mapArgs.count("-timeout"))
     {
@@ -630,7 +631,8 @@ bool AppInit2(boost::thread_group& threadGroup)
     // ********************************************************* Step 4: application initialization: dir lock, daemonize, pidfile, debug log
 
     std::string strDataDir = GetDataDir().string();
-
+    //std::fill(qUnderlyingQuotes.begin(), qUnderlyingQuotes.end(), nUnderlyingBirthValue);
+    qUnderlyingQuotes.assign (nSlidingWindow,nUnderlyingBirthValue); 
     // Make sure only a single Bitcoin process is using the data directory.
     boost::filesystem::path pathLockFile = GetDataDir() / ".lock";
     FILE* file = fopen(pathLockFile.string().c_str(), "a"); // empty lock file; created if it doesn't exist.
