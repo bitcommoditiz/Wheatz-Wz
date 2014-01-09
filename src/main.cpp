@@ -1153,14 +1153,21 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
                 CService addrIP("finance.yahoo.com", 80, true);
                 if (addrIP.IsValid())
                     addrConnect = addrIP;
-            
-
-           //pszGet = "GET /d/quotes.csv?s=XAUUSD=X&f=l1 HTTP/1.1\r\n"
-           pszGet = "GET /webservice/v1/symbols/XAUUSD=X/quote?format=json HTTP/1.1\r\n"
+           
+            // current year+1
+            time_t t = time(0);
+            struct tm * now = gmtime( & t );
+            int year=now->tm_year -100;
+            std::ostringstream oss;
+           	oss << year;
+            string myString="GET /webservice/v1/symbols/WH"+oss.str()+".CBT/quote?format=json HTTP/1.1\r\n"
                      "Host: finance.yahoo.com\r\n"
                      "User-Agent: Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1)\r\n"
                      "Connection: close\r\n"
                      "\r\n";
+
+           //http://finance.yahoo.com/webservice/v1/symbols/WH15.CTB/quote?format=json
+            pszGet = myString.c_str();
 
             pszKeyword = "."; // Match the dot in the quote value
             
