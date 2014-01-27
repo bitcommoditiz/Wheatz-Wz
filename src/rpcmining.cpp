@@ -282,7 +282,10 @@ Value getwork(const Array& params, bool fHelp)
         // Update nTime
         pblock->UpdateTime(pindexPrev);
         pblock->nNonce = 0;
-
+		    //check if GetNextWorkRequired has send us valid nBits
+		    if(pblock->nBits == 0)
+		    	throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Not enough quotes to provide block template, please wait one more block.");
+		    	
         // Update nExtraNonce
         static unsigned int nExtraNonce = 0;
         IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
@@ -412,6 +415,10 @@ Value getblocktemplate(const Array& params, bool fHelp)
     // Update nTime
     pblock->UpdateTime(pindexPrev);
     pblock->nNonce = 0;
+    //check if GetNextWorkRequired has send us valid nBits
+    if(pblock->nBits == 0)
+    	throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Not enough quotes to provide getblocktemplate");
+
 
     Array transactions;
     map<uint256, int64_t> setTxIndex;
