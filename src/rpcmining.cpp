@@ -495,6 +495,30 @@ Value submitblock(const Array& params, bool fHelp)
             "Attempts to submit new block to network.\n"
             "See https://en.bitcoin.it/wiki/BIP_0022 for full specification.");
 
+    // we do not want a block submission if not enough quote
+    // we use a fake block template request
+		static CBlockTemplate* pblocktemplate;
+        // Create new block
+        if(pblocktemplate)
+        {
+            delete pblocktemplate;
+            pblocktemplate = NULL;
+        }
+        pblocktemplate = CreateNewBlock(*pMiningKey);
+        if (!pblocktemplate){
+            throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory");       
+        }
+
+         CBlock* fakepblock = &pblocktemplate->block; // pointer for convenience
+
+		    //check if GetNextWorkRequired has send us valid nBits
+		    if(fakepblock->nBits == 0){
+		    		throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Not enough quotes to accept block");    	
+		    }
+    
+ 
+ // end of fake block
+
     vector<unsigned char> blockData(ParseHex(params[0].get_str()));
     CDataStream ssBlock(blockData, SER_NETWORK, PROTOCOL_VERSION);
     CBlock pblock;
