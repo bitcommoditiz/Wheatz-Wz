@@ -52,7 +52,7 @@ bool fSkipPOWTest = true;
 bool fCalledForTemplate = false;
 unsigned int nCoinCacheSize = 5000;
 int nPeerBlockCounts = 0;// at start sync the number of blocks in best peer
-double nUnderlyingBirthValue = 1228; //the value of the underlying commodity in US Dollar the date the bitcommoditiz was born
+double nUnderlyingBirthValue = 650; //the value of the underlying commodity in US Dollar the date the bitcommoditiz was born
 int nSlidingWindow = 50; // the number of underlying quote we maintain in the queue
 int nNewBlocksAccepted = 0;
 std::deque<double> qUnderlyingQuotes; //sliding queue with the last nSlidingWindow quote values of the underlying commodity
